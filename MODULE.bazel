@@ -5,6 +5,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.9")
 bazel_dep(name = "rules_python", version = "1.6.3")
 bazel_dep(name = "gflags", version = "2.2.2")
+bazel_dep(name = "pinocchio", version = "2.6.21.bcr.4")
 
 LCM_COMMIT = "4f9f586e9fda1ab2d5e12427386226519f65b6de"
 bazel_dep(name = "lcm")
@@ -81,9 +82,6 @@ use_repo(
     "styleguide_internal",
 )
 
-# Use http_archive from bazel_tools for github repositories.
-http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-
 # Create aliases for Drake dependencies that libfranka needs to access.
 # Drake uses a flag-based system to switch between module and pkgconfig versions.
 # We'll use Drake's eigen_repository to get the configured version.
@@ -94,56 +92,24 @@ eigen_repository = use_repo_rule(
 
 eigen_repository(name = "eigen")
 
-# Drake dependencies (models, gflags, lcm).
-http_archive(
-    name = "drake_models",
-    urls = ["https://github.com/RobotLocomotion/models/archive/68e906556069eab9896f9006b6bf17a32b8b0f1d.tar.gz"],
-    sha256 = "bad9de839fc61447cecaf2abc8f8df7afe77e5ab4fbdeb28d9cfec0a8338b1fa",
-    strip_prefix = "models-68e906556069eab9896f9006b6bf17a32b8b0f1d",
-    build_file = "@drake//tools/workspace/drake_models:package.BUILD.bazel",
+# Import external dependencies (drake_models, libfranka, etc.)
+external_repos = use_extension(
+    "//tools/workspace:external_repositories.bzl",
+    "external_repositories",
 )
-
-# LCM and gflags repositories. gflags comes with its own BUILD file.
-# For LCM, we need to provide a BUILD file since it doesn't have one.
-
-# Instantiate the libfranka repositories using http_archive.
-http_archive(
-    name = "libfranka_v4",
-    urls = ["https://github.com/frankarobotics/libfranka/archive/c452ba20397cde846fe2e48d0be94b522ef88dac.tar.gz"],
-    sha256 = "f0616d01ef09aa1d5948d385a6cfe18c514bc6e0921e4fac97ada7262b8722e4",
-    strip_prefix = "libfranka-c452ba20397cde846fe2e48d0be94b522ef88dac",
-    build_file = "//tools/workspace/libfranka_v4:package.BUILD.bazel",
-)
-
-http_archive(
-    name = "libfranka_v5",
-    urls = ["https://github.com/frankarobotics/libfranka/archive/4f9e3cc666e42d267f1ab566869c4f4c552e5b57.tar.gz"],
-    sha256 = "ba546b58ff211c7cc41cda2a2067ba200983e49304f5ddccf9dbbb55ebfef7a4",
-    strip_prefix = "libfranka-4f9e3cc666e42d267f1ab566869c4f4c552e5b57",
-    build_file = "//tools/workspace/libfranka_v5:package.BUILD.bazel",
-)
-
-http_archive(
-    name = "libfranka_common_v4",
-    urls = ["https://github.com/frankarobotics/libfranka-common/archive/e6aa0fc210d93fe618bfd8956829a264d5476ba8.tar.gz"],
-    sha256 = "721fffe11c5dec6735e191c2f08e58de3828d05ea25c3901c1940cd30a226509",
-    strip_prefix = "libfranka-common-e6aa0fc210d93fe618bfd8956829a264d5476ba8",
-    build_file = "//tools/workspace/libfranka_common_v4:package.BUILD.bazel",
-)
-
-http_archive(
-    name = "libfranka_common_v5",
-    urls = ["https://github.com/frankarobotics/libfranka-common/archive/ea26b89aa302b1456c825fb622b414bb3b1013ce.tar.gz"],
-    sha256 = "2f8c3dc6a63ab4bcb8ab770b4f39105a4a4fd64bdcd2c98755b7c51754be1ead",
-    strip_prefix = "libfranka-common-ea26b89aa302b1456c825fb622b414bb3b1013ce",
-    build_file = "//tools/workspace/libfranka_common_v5:package.BUILD.bazel",
+use_repo(
+    external_repos,
+    "drake_models",
+    "libfranka_v4",
+    "libfranka_v5",
+    "libfranka_common_v4",
+    "libfranka_common_v5",
 )
 
 # Poco repository (system library from /usr).
-new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
-
-new_local_repository(
-    name = "poco",
-    path = "/usr",
-    build_file = "//tools/workspace/poco:package.BUILD.bazel",
+poco_repository = use_repo_rule(
+    "//tools/workspace/poco:repository.bzl",
+    "poco_repository",
 )
+
+poco_repository(name = "poco")

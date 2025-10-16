@@ -12,8 +12,8 @@ def libfranka_v5_repository(
     github_archive(
         name = name,
         repository = "frankarobotics/libfranka",
-        commit = "4f9e3cc666e42d267f1ab566869c4f4c552e5b57",
-        sha256 = "ba546b58ff211c7cc41cda2a2067ba200983e49304f5ddccf9dbbb55ebfef7a4",  # noqa
+        commit = "faaefaa0ff17a812b8a9bc4ac1ed7c353c46064d",
+        sha256 = "d733299b6a88762405cb56fce605d3f98ab2d78ecd6464ee1b255017e6ed903b",  # noqa
         build_file = "//tools/workspace/libfranka_v5:package.BUILD.bazel",  # noqa
         mirrors = mirrors,
     )
