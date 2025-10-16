@@ -1,13 +1,21 @@
 module(name = "drake_franka_driver")
 
-# Add the Bazel rules we need.
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.9")
 bazel_dep(name = "rules_python", version = "1.6.3")
 bazel_dep(name = "gflags", version = "2.2.2")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+
+bazel_dep(name = "buildifier_prebuilt", version = "8.2.0.2", dev_dependency = True)
+
+# Pinocchio is required for libfranka v5 (FR3 robots) dynamics computations.
+# Version 2.6.21 provides the rigid body dynamics needed by the modern libfranka API.
 bazel_dep(name = "pinocchio", version = "2.6.21.bcr.4")
 
+# LCM (Lightweight Communications and Marshalling) for inter-process communication.
+# Using a specific commit from the main branch for latest features.
 LCM_COMMIT = "4f9f586e9fda1ab2d5e12427386226519f65b6de"
+
 bazel_dep(name = "lcm")
 archive_override(
     module_name = "lcm",
@@ -18,31 +26,20 @@ archive_override(
     ]],
 )
 
-# Here we introduce Drake as a module dependency, but note that Drake is not
-# published to any Bazel registry. Below, we'll override it with a github
-# source archive.
 bazel_dep(name = "drake")
 
 # Drake version configuration.
 DRAKE_COMMIT = "v1.45.0"
+
 DRAKE_CHECKSUM = "fd70210cbbe233b78bb6df2d8f42c7334ea15fca8833865322d788ab4eaf0c16"
 
-# Before changing the COMMIT, temporarily uncomment the next line so that Bazel
-# displays the suggested new value for the CHECKSUM.
-# DRAKE_CHECKSUM = "0" * 64
-
-# This declares the `@drake` module as a source code archive from github.
-# To use a local checkout of Drake instead, use the --override_module flag:
-#   bazel build --override_module=drake=/path/to/drake //...
-# Or add to user.bazelrc:
-#   build --override_module=drake=/path/to/drake
 archive_override(
     module_name = "drake",
+    sha256 = DRAKE_CHECKSUM,
+    strip_prefix = "drake-{}".format(DRAKE_COMMIT.lstrip("v")),
     urls = [x.format(DRAKE_COMMIT) for x in [
         "https://github.com/RobotLocomotion/drake/archive/{}.tar.gz",
     ]],
-    sha256 = DRAKE_CHECKSUM,
-    strip_prefix = "drake-{}".format(DRAKE_COMMIT.lstrip("v")),
 )
 
 # Use the host system /usr/bin/python3.
@@ -66,8 +63,8 @@ drake_dep_repositories = use_extension(
 )
 use_repo(
     drake_dep_repositories,
-    "pycodestyle",
     "buildifier",
+    "pycodestyle",
 )
 
 # Import Drake's internal dependencies for linting tools.
@@ -92,7 +89,12 @@ eigen_repository = use_repo_rule(
 
 eigen_repository(name = "eigen")
 
-# Import external dependencies (drake_models, libfranka, etc.)
+# Import external dependencies for Franka robot control.
+# This provides:
+#   - drake_models: Robot URDF/SDF models for visualization and simulation
+#   - libfranka_v4 (0.9.0): Control library for FE3 robots with firmware v4.x
+#   - libfranka_v5 (~0.15.0): Control library for FR3 robots with firmware v5.x
+#   - libfranka_common_v4/v5: Shared protocol definitions for each version
 external_repos = use_extension(
     "//tools/workspace:external_repositories.bzl",
     "external_repositories",
@@ -100,10 +102,10 @@ external_repos = use_extension(
 use_repo(
     external_repos,
     "drake_models",
-    "libfranka_v4",
-    "libfranka_v5",
     "libfranka_common_v4",
     "libfranka_common_v5",
+    "libfranka_v4",
+    "libfranka_v5",
 )
 
 # Poco repository (system library from /usr).

@@ -9,6 +9,14 @@ load(
 def libfranka_v4_repository(
         name,
         mirrors = None):
+    """
+    Provides libfranka v4 (0.9.0) for FE3 robots with firmware v4.x.
+
+    This is the legacy version for older Panda robots. Use libfranka_v5
+    for newer FR3 robots instead.
+
+    Commit: c452ba20397cde846fe2e48d0be94b522ef88dac (v0.9.0 release)
+    """
     github_archive(
         name = name,
         repository = "frankarobotics/libfranka",
