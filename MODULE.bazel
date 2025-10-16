@@ -5,8 +5,6 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.9")
 bazel_dep(name = "rules_python", version = "1.6.3")
 bazel_dep(name = "gflags", version = "2.2.2")
-bazel_dep(name = "buildifier_prebuilt", version = "8.2.0.2", dev_dependency = True)
-
 
 LCM_COMMIT = "4f9f586e9fda1ab2d5e12427386226519f65b6de"
 bazel_dep(name = "lcm")
