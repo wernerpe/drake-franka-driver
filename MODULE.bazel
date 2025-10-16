@@ -1,6 +1,151 @@
-###############################################################################
-# Bazel now uses Bzlmod by default to manage external dependencies.
-# Please consider migrating your external dependencies from WORKSPACE to MODULE.bazel.
-#
-# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
-###############################################################################
+module(name = "drake_franka_driver")
+
+# Add the Bazel rules we need.
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_cc", version = "0.2.9")
+bazel_dep(name = "rules_python", version = "1.6.3")
+bazel_dep(name = "gflags", version = "2.2.2")
+bazel_dep(name = "buildifier_prebuilt", version = "8.2.0.2", dev_dependency = True)
+
+
+LCM_COMMIT = "4f9f586e9fda1ab2d5e12427386226519f65b6de"
+bazel_dep(name = "lcm")
+archive_override(
+    module_name = "lcm",
+    sha256 = "d2de73ea17993d3586eb9559b48ac3e35dd68064ad6abbdd3e0d4081e5b90685",
+    strip_prefix = "lcm-{}".format(LCM_COMMIT.lstrip("v")),
+    urls = [x.format(LCM_COMMIT) for x in [
+        "https://github.com/lcm-proj/lcm/archive/{}.tar.gz",
+    ]],
+)
+
+# Here we introduce Drake as a module dependency, but note that Drake is not
+# published to any Bazel registry. Below, we'll override it with a github
+# source archive.
+bazel_dep(name = "drake")
+
+# Drake version configuration.
+DRAKE_COMMIT = "v1.45.0"
+DRAKE_CHECKSUM = "fd70210cbbe233b78bb6df2d8f42c7334ea15fca8833865322d788ab4eaf0c16"
+
+# Before changing the COMMIT, temporarily uncomment the next line so that Bazel
+# displays the suggested new value for the CHECKSUM.
+# DRAKE_CHECKSUM = "0" * 64
+
+# This declares the `@drake` module as a source code archive from github.
+# To use a local checkout of Drake instead, use the --override_module flag:
+#   bazel build --override_module=drake=/path/to/drake //...
+# Or add to user.bazelrc:
+#   build --override_module=drake=/path/to/drake
+archive_override(
+    module_name = "drake",
+    urls = [x.format(DRAKE_COMMIT) for x in [
+        "https://github.com/RobotLocomotion/drake/archive/{}.tar.gz",
+    ]],
+    sha256 = DRAKE_CHECKSUM,
+    strip_prefix = "drake-{}".format(DRAKE_COMMIT.lstrip("v")),
+)
+
+# Use the host system /usr/bin/python3.
+python_repository = use_repo_rule(
+    "@drake//tools/workspace/python:repository.bzl",
+    "python_repository",
+)
+
+python_repository(
+    name = "python",
+    linux_interpreter_path = "/usr/bin/python3",
+    requirements_flavor = "build",
+)
+
+register_toolchains("@python//:all")
+
+# Import Drake's public dependencies (deprecated pycodestyle, buildifier).
+drake_dep_repositories = use_extension(
+    "@drake//tools/workspace:default.bzl",
+    "drake_dep_repositories",
+)
+use_repo(
+    drake_dep_repositories,
+    "pycodestyle",
+    "buildifier",
+)
+
+# Import Drake's internal dependencies for linting tools.
+internal_repositories = use_extension(
+    "@drake//tools/workspace:default.bzl",
+    "internal_repositories",
+)
+use_repo(
+    internal_repositories,
+    "cpplint_internal",
+    "pycodestyle_internal",
+    "styleguide_internal",
+)
+
+# Use http_archive from bazel_tools for github repositories.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# Create aliases for Drake dependencies that libfranka needs to access.
+# Drake uses a flag-based system to switch between module and pkgconfig versions.
+# We'll use Drake's eigen_repository to get the configured version.
+eigen_repository = use_repo_rule(
+    "@drake//tools/workspace/eigen:repository.bzl",
+    "eigen_repository",
+)
+
+eigen_repository(name = "eigen")
+
+# Drake dependencies (models, gflags, lcm).
+http_archive(
+    name = "drake_models",
+    urls = ["https://github.com/RobotLocomotion/models/archive/68e906556069eab9896f9006b6bf17a32b8b0f1d.tar.gz"],
+    sha256 = "bad9de839fc61447cecaf2abc8f8df7afe77e5ab4fbdeb28d9cfec0a8338b1fa",
+    strip_prefix = "models-68e906556069eab9896f9006b6bf17a32b8b0f1d",
+    build_file = "@drake//tools/workspace/drake_models:package.BUILD.bazel",
+)
+
+# LCM and gflags repositories. gflags comes with its own BUILD file.
+# For LCM, we need to provide a BUILD file since it doesn't have one.
+
+# Instantiate the libfranka repositories using http_archive.
+http_archive(
+    name = "libfranka_v4",
+    urls = ["https://github.com/frankarobotics/libfranka/archive/c452ba20397cde846fe2e48d0be94b522ef88dac.tar.gz"],
+    sha256 = "f0616d01ef09aa1d5948d385a6cfe18c514bc6e0921e4fac97ada7262b8722e4",
+    strip_prefix = "libfranka-c452ba20397cde846fe2e48d0be94b522ef88dac",
+    build_file = "//tools/workspace/libfranka_v4:package.BUILD.bazel",
+)
+
+http_archive(
+    name = "libfranka_v5",
+    urls = ["https://github.com/frankarobotics/libfranka/archive/4f9e3cc666e42d267f1ab566869c4f4c552e5b57.tar.gz"],
+    sha256 = "ba546b58ff211c7cc41cda2a2067ba200983e49304f5ddccf9dbbb55ebfef7a4",
+    strip_prefix = "libfranka-4f9e3cc666e42d267f1ab566869c4f4c552e5b57",
+    build_file = "//tools/workspace/libfranka_v5:package.BUILD.bazel",
+)
+
+http_archive(
+    name = "libfranka_common_v4",
+    urls = ["https://github.com/frankarobotics/libfranka-common/archive/e6aa0fc210d93fe618bfd8956829a264d5476ba8.tar.gz"],
+    sha256 = "721fffe11c5dec6735e191c2f08e58de3828d05ea25c3901c1940cd30a226509",
+    strip_prefix = "libfranka-common-e6aa0fc210d93fe618bfd8956829a264d5476ba8",
+    build_file = "//tools/workspace/libfranka_common_v4:package.BUILD.bazel",
+)
+
+http_archive(
+    name = "libfranka_common_v5",
+    urls = ["https://github.com/frankarobotics/libfranka-common/archive/ea26b89aa302b1456c825fb622b414bb3b1013ce.tar.gz"],
+    sha256 = "2f8c3dc6a63ab4bcb8ab770b4f39105a4a4fd64bdcd2c98755b7c51754be1ead",
+    strip_prefix = "libfranka-common-ea26b89aa302b1456c825fb622b414bb3b1013ce",
+    build_file = "//tools/workspace/libfranka_common_v5:package.BUILD.bazel",
+)
+
+# Poco repository (system library from /usr).
+new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
+
+new_local_repository(
+    name = "poco",
+    path = "/usr",
+    build_file = "//tools/workspace/poco:package.BUILD.bazel",
+)

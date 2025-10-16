@@ -15,7 +15,7 @@ cc_binary(
         "@drake//multibody/plant",
         "@drake//multibody/parsing:parsing",
         "@gflags",
-        "@lcm",
+        "@lcm//lcm:lcm-static",
         "@libfranka_v5",
     ],
     data = [
@@ -35,7 +35,7 @@ cc_binary(
         "@drake//multibody/plant",
         "@drake//multibody/parsing:parsing",
         "@gflags",
-        "@lcm",
+        "@lcm//lcm:lcm-static",
         "@libfranka_v4",
     ],
     data = [
@@ -54,7 +54,7 @@ cc_binary(
         "@drake//lcmtypes:panda",
         "@drake//lcmtypes:schunk",
         "@gflags",
-        "@lcm",
+        "@lcm//lcm:lcm-static",
         "@libfranka_v5",
     ],
     data = [
@@ -73,7 +73,7 @@ cc_binary(
         "@drake//lcmtypes:panda",
         "@drake//lcmtypes:schunk",
         "@gflags",
-        "@lcm",
+        "@lcm//lcm:lcm-static",
         "@libfranka_v4",
     ],
     data = [

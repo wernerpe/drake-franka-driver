@@ -2,9 +2,9 @@
 This repository contains the application code used to communicate with the Franka Emika arm from Drake. 
 
 ## Building the driver
-Before you begin, install the prerequisite:
+Before you begin, install the prerequisites:
 ```
-sudo apt install libgflags-dev
+sudo apt install libgflags-dev libpoco-dev
 ```
 
 To build, run `bazel build //...`.  This will output two versions of

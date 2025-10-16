@@ -10,7 +10,7 @@ py_binary(
 )
 
 py_binary(
-    name = "clang-format-includes",
+    name = "clang_format_lint",
     testonly = 1,
     srcs = ["clang_format_includes.py"],
     data = [
@@ -19,7 +19,7 @@ py_binary(
     ],
     main = "clang_format_includes.py",
     deps = [
-        "@drake//tools/lint:clang-format-includes",
+        "@drake//tools/lint:clang_format_lint",
     ],
 )
 
