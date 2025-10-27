@@ -787,9 +787,15 @@ std::unique_ptr<MultibodyPlant<double>> MaybeLoadPlant() {
   const double time_step = 0.0;
   auto plant = std::make_unique<MultibodyPlant<double>>(time_step);
   drake::multibody::Parser parser(plant.get());
-  drake::multibody::parsing::ModelDirectives directives = 
+
+  // Register the driver_models package for custom URDFs
+  const std::string package_xml_path = GetPathOrThrow(
+      drake::FindRunfile("drake_franka_driver/models/package.xml"));
+  parser.package_map().AddPackageXml(package_xml_path);
+
+  drake::multibody::parsing::ModelDirectives directives =
         drake::multibody::parsing::LoadModelDirectives(model_file);
-  drake::multibody::parsing::ProcessModelDirectives(directives, plant.get(), 
+  drake::multibody::parsing::ProcessModelDirectives(directives, plant.get(),
                                                 nullptr, &parser);
   plant->Finalize();
   return plant;
