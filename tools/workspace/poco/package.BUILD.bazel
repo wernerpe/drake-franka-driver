@@ -5,9 +5,9 @@ cc_library(
     name = "poco",
     srcs = glob(
         [
-            "lib/libPoco*.so*",
-            "lib/x86_64-linux-gnu/libPoco*.so*",
-            "lib/aarch64-linux-gnu/libPoco*.so*",
+            "lib/libPoco*.so",
+            "lib/x86_64-linux-gnu/libPoco*.so",
+            "lib/aarch64-linux-gnu/libPoco*.so",
         ],
         allow_empty = True,
     ),
