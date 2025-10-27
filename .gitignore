@@ -9,3 +9,4 @@ core
 *~
 *.jlp
 MODULE.bazel.lock
+.claude/*

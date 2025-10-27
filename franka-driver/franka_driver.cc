@@ -102,6 +102,14 @@ DEFINE_bool(
     "--use_mbp=true means that gravity compenstation will use a Drake-"
     "supplied model. Otherwise, Franka's internal Panda model is used.");
 
+// Rate limiting options
+DEFINE_bool(
+    disable_rate_limiting, false,
+    "Disable libfranka's client-side rate limiting for joint velocity and "
+    "acceleration. When disabled, commands are sent directly without being "
+    "clamped to conservative limits. The robot firmware still enforces its "
+    "own safety checks. Useful when tight tolerances cause false positives.");
+
 namespace robotlocomotion {
 namespace franka_driver {
 namespace {
@@ -271,7 +279,7 @@ class PandaDriver {
 
   void ControlLoop(ControlMode mode) {
     try {
-      const bool limit_rate = true;
+      const bool limit_rate = !FLAGS_disable_rate_limiting;
       switch (mode) {
         case ControlMode::kStatusOnly: {
           robot_.read(std::bind(&PandaDriver::DoStateRead, this, sp::_1));
