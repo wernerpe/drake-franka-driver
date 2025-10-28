@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -129,8 +130,14 @@ void CopyArrayToVector(std::vector<T>* dest, const std::array<T, N>& src) {
 
 template <typename T, std::size_t N>
 std::string PrintArray(const std::string& name, std::array<T, N> data) {
-  return
-      name + ": " + /*common_robotics_utilities::print::Print(data, true) +*/ "\n";
+  std::ostringstream oss;
+  oss << name << ": [";
+  for (std::size_t i = 0; i < N; ++i) {
+    oss << data[i];
+    if (i < N - 1) oss << ", ";
+  }
+  oss << "]\n";
+  return oss.str();
 }
 
 constexpr int kNdof = 7;
