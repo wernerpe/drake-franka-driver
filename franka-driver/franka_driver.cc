@@ -282,6 +282,18 @@ class PandaDriver {
   }
 
   void ControlLoop(ControlMode mode) {
+    // Log the control mode at startup
+    std::string mode_str;
+    switch (mode) {
+      case ControlMode::kStatusOnly: mode_str = "status_only"; break;
+      case ControlMode::kVelocity: mode_str = "velocity"; break;
+      case ControlMode::kPosition: mode_str = "position"; break;
+      case ControlMode::kPositionVelocity: mode_str = "position_velocity"; break;
+      case ControlMode::kTorque: mode_str = "torque"; break;
+      default: mode_str = "UNKNOWN"; break;
+    }
+    drake::log()->info("Starting control loop in '{}' mode", mode_str);
+
     try {
       const bool limit_rate = !FLAGS_disable_rate_limiting;
       switch (mode) {
