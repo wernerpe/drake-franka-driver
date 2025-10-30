@@ -31,7 +31,7 @@ DEFINE_double(joint_torque_limit, 100.0, "Joint torque limit");
 DEFINE_double(cartesian_force_limit, 100.0, "Cartesian force/torque limit");
 DEFINE_string(
     control_mode, "velocity",
-    "Choose from: status_only, velocity (default), position, torque");
+    "Choose from: status_only, velocity (default), position, position_velocity, torque");
 DEFINE_bool(
     latch, false, "Latch previous command if no new command has arrived");
 DEFINE_double(
@@ -102,6 +102,14 @@ DEFINE_bool(
     "--use_mbp=true means that gravity compenstation will use a Drake-"
     "supplied model. Otherwise, Franka's internal Panda model is used.");
 
+// Rate limiting options
+DEFINE_bool(
+    disable_rate_limiting, false,
+    "Disable libfranka's client-side rate limiting for joint velocity and "
+    "acceleration. When disabled, commands are sent directly without being "
+    "clamped to conservative limits. The robot firmware still enforces its "
+    "own safety checks. Useful when tight tolerances cause false positives.");
+
 namespace robotlocomotion {
 namespace franka_driver {
 namespace {
@@ -134,6 +142,8 @@ enum class ControlMode {
   kVelocity,
   /** Command positions and velocities via Joint impedance */
   kPosition,
+  /** Command positions with velocity feedforward via torque control */
+  kPositionVelocity,
   /** Command torques directly */
   kTorque,
 };
@@ -145,6 +155,8 @@ ControlMode ToControlMode(std::string value) {
     return ControlMode::kVelocity;
   } else if (value == "position") {
     return ControlMode::kPosition;
+  } else if (value == "position_velocity") {
+    return ControlMode::kPositionVelocity;
   } else if (value == "torque") {
     return ControlMode::kTorque;
   } else {
@@ -271,7 +283,7 @@ class PandaDriver {
 
   void ControlLoop(ControlMode mode) {
     try {
-      const bool limit_rate = true;
+      const bool limit_rate = !FLAGS_disable_rate_limiting;
       switch (mode) {
         case ControlMode::kStatusOnly: {
           robot_.read(std::bind(&PandaDriver::DoStateRead, this, sp::_1));
@@ -301,6 +313,15 @@ class PandaDriver {
                 franka::ControllerMode::kJointImpedance,
                 limit_rate, FLAGS_low_pass_freq);
           }
+          break;
+        }
+        case ControlMode::kPositionVelocity: {
+          DoNonRealtimeControlSetup();
+          robot_.control(
+              std::bind(
+                  &PandaDriver::DoPositionVelocityControlViaTorque,
+                  this, sp::_1, sp::_2),
+              limit_rate, franka::kDefaultCutoffFrequency);
           break;
         }
         case ControlMode::kTorque: {
@@ -605,6 +626,185 @@ class PandaDriver {
       // coriolis.
       // TODO(eric.cousineau): Still provide option to add feedfoward inertia
       // terms?
+      tau_cmd = inertia_matrix_ * feedback + coriolis_vector_;
+    } else {
+      // Use torques directly, add feedforward based on command acceleration.
+      tau_cmd = feedback + inertia_matrix_ * a_cmd_latest_ + coriolis_vector_;
+    }
+
+    if (is_first_tick_) {
+      is_first_tick_ = false;
+    }
+
+    std::array<double, kNdof> tau_cmd_array{};
+    Eigen::VectorXd::Map(&tau_cmd_array[0], kNdof) = tau_cmd;
+    return franka::Torques(tau_cmd_array);
+  }
+
+  franka::Torques DoPositionVelocityControlViaTorque(
+      const franka::RobotState& state, franka::Duration period)  {
+    PublishRobotState(state);
+
+    // Poll for incoming command messages.
+    while (lcm_.handleTimeout(0) > 0) {}
+
+    const double dt = period.toSec();
+    if (is_first_tick_) {
+      // First tick should indicate zero dt.
+      DRAKE_DEMAND(dt == 0.0);
+      // Initialize command to libfranka's reported last command.
+      for (size_t i = 0; i < state.q.size(); ++i) {
+        q_cmd_latest_(i) = state.q_d[i];
+      }
+    } else {
+      // N.B. The period from libfranka is in multiples of 1ms.
+      DRAKE_DEMAND(dt > 0.0);
+    }
+
+    if (!command_ && latch_) {
+      command_ = command_prev_;
+    }
+
+    Eigen::VectorXd q_cmd_raw(kNdof);
+    Eigen::VectorXd v_cmd_raw(kNdof);
+
+    if (command_) {
+      command_prev_ = command_;
+
+      // Expect both position and velocity in the command
+      const int expected_mode = drake::lcmt_panda_status::CONTROL_MODE_POSITION |
+                                drake::lcmt_panda_status::CONTROL_MODE_VELOCITY;
+      DRAKE_THROW_UNLESS(command_->control_mode_expected == expected_mode);
+      DRAKE_THROW_UNLESS(command_->num_joint_torque == 0);
+
+      // Check if command has expired (following drake-iiwa-driver pattern)
+      // We check time since receipt, not the message timestamp
+      const int64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      const int64_t stale_utime = now - command_receipt_utime_;
+      if (stale_utime > expire_usec_) {
+        drake::log()->warn(
+            "Position-velocity command expired! Using last known command.");
+        command_.reset();
+        command_prev_.reset();
+        // Continue with last known q_cmd_latest_ and v_cmd_latest_
+        q_cmd_raw = q_cmd_latest_;
+        v_cmd_raw = v_cmd_latest_;
+      } else {
+        if (command_->num_joint_position != std::ssize(state.q)) {
+          throw std::runtime_error(
+              "Received command with unexpected num_joint_position");
+        }
+        if (command_->num_joint_velocity != std::ssize(state.q)) {
+          throw std::runtime_error(
+              "Received command with unexpected num_joint_velocity");
+        }
+
+        for (int i = 0; i < command_->num_joint_position; ++i) {
+          q_cmd_raw(i) = command_->joint_position[i];
+          v_cmd_raw(i) = command_->joint_velocity[i];
+        }
+      }
+    } else {
+      // Use previous.
+      q_cmd_raw = q_cmd_latest_;
+      v_cmd_raw = v_cmd_latest_;
+    }
+
+    // Read actual positions and velocities.
+    Eigen::VectorXd q_actual(kNdof), v_actual(kNdof);
+    for (size_t i = 0; i < kNdof; ++i) {
+      q_actual[i] = state.q[i];
+      v_actual[i] = state.dq[i];
+    }
+
+    // Record previous for finite differencing (only for acceleration).
+    const Eigen::VectorXd q_cmd_prev = q_cmd_latest_;
+    const Eigen::VectorXd v_cmd_prev = v_cmd_latest_;
+
+    if (is_first_tick_) {
+      q_cmd_latest_ = q_cmd_raw;
+      v_cmd_latest_ = v_cmd_raw;
+    } else {
+      // Filter position commands if enabled.
+      if (FLAGS_low_pass_freq < franka::kMaxCutoffFrequency) {
+        for (int i = 0; i < kNdof; ++i) {
+          q_cmd_latest_[i] = franka::lowpassFilter(
+              dt, q_cmd_raw[i], q_cmd_prev[i], FLAGS_low_pass_freq);
+        }
+      } else {
+        q_cmd_latest_ = q_cmd_raw;
+      }
+
+      // Filter velocity commands if enabled.
+      // Use diff_low_pass_freq since velocities are derivative quantities.
+      if (FLAGS_diff_low_pass_freq < franka::kMaxCutoffFrequency) {
+        for (int i = 0; i < kNdof; ++i) {
+          v_cmd_latest_[i] = franka::lowpassFilter(
+              dt, v_cmd_raw[i], v_cmd_prev[i], FLAGS_diff_low_pass_freq);
+        }
+      } else {
+        v_cmd_latest_ = v_cmd_raw;
+      }
+    }
+
+    if (is_first_tick_) {
+      // Use zero acceleration initially.
+      a_cmd_latest_.setZero();
+    } else {
+      // Compute acceleration via finite differencing of velocity command.
+      const Eigen::VectorXd a_cmd_raw = (v_cmd_latest_ - v_cmd_prev) / dt;
+      for (int i = 0; i < kNdof; ++i) {
+        a_cmd_latest_[i] = franka::lowpassFilter(
+              dt, a_cmd_raw[i], a_cmd_latest_[i], FLAGS_diff_low_pass_freq);
+      }
+    }
+
+    // Feedback gains.
+    Eigen::VectorXd kp(kNdof), kd(kNdof);
+    kp.setZero();
+    kd.setZero();
+    if (FLAGS_torque_feedback_in_acceleration) {
+      kp.setConstant(1000.0);
+      kd.setConstant(45.0);
+    } else {
+      SetGainsForJointStiffnessErrorToTorque(&kp, &kd);
+    }
+
+    Eigen::VectorXd v_desired = v_cmd_latest_;
+    if (FLAGS_torque_zero_desired_velocity) {
+      v_desired.setZero();
+    }
+    Eigen::VectorXd feedback =
+        -kp.array() * (q_actual - q_cmd_latest_).array()
+        - kd.array() * (v_actual - v_desired).array();
+
+    if (plant_) {
+      DRAKE_DEMAND(context_ != nullptr);
+      // Update context.
+      plant_->SetPositions(context_.get(), q_actual);
+      plant_->SetVelocities(context_.get(), v_actual);
+      // Compute values.
+      plant_->CalcBiasTerm(*context_, &coriolis_vector_);
+      plant_->CalcMassMatrix(*context_, &inertia_matrix_);
+    } else {
+      // Compute Coriolis and inertia terms from Franka model.
+      const std::array<double, kNdof> coriolis_array = model_.coriolis(state);
+      coriolis_vector_ = Eigen::VectorXd::Map(&coriolis_array[0], kNdof);
+      const std::array<double, kNdof * kNdof> inertia_array =
+          model_.mass(state);
+      inertia_matrix_ = Eigen::MatrixXd::Map(&inertia_array[0], kNdof, kNdof);
+    }
+
+    coriolis_vector_ *= FLAGS_torque_coriolis_scale;
+    inertia_matrix_ *= FLAGS_torque_inertia_scale;
+
+    // N.B. Franka docs say that `franka::Torques` should indicate desired
+    // torques without gravity or friction.
+    Eigen::VectorXd tau_cmd(kNdof);
+    if (FLAGS_torque_feedback_in_acceleration) {
+      // Project feedback (in acceleration) to torques, add feedforward
+      // coriolis.
       tau_cmd = inertia_matrix_ * feedback + coriolis_vector_;
     } else {
       // Use torques directly, add feedforward based on command acceleration.
